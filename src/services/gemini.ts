@@ -16,51 +16,37 @@ const modelNoSearch = genAI.getGenerativeModel({
     responseSchema: {
       type: SchemaType.OBJECT,
       properties: {
-        sources: {
+        summary: { type: SchemaType.STRING },
+        keyFindings: {
           type: SchemaType.ARRAY,
-          items: {
-            type: SchemaType.OBJECT,
-            properties: {
-              title: { type: SchemaType.STRING },
-              uri: { type: SchemaType.STRING },
-              date: { type: SchemaType.STRING },
-              reference: { type: SchemaType.STRING }
-            },
-            required: ["title", "uri", "reference"]
-          }
+          items: { type: SchemaType.STRING }
         }
       },
-      required: ["sources"]
+      required: ["summary"]
     }
   }
 });
 
-// Helper to parse search results into desired format
-async function parseSearchResults(query: string, searchContext: string): Promise<DialogueResult> {
-  const prompt = `
-    Based on the following search results about: "${query}"
-    
-    SEARCH CONTEXT:
-    ${searchContext}
+// Helper to extract sources from grounding metadata
+function extractSourcesFromGrounding(groundingMetadata: any, responseText: string): DialogueResult {
+  const sources = groundingMetadata?.groundingChunks
+    ?.map((chunk: any) => {
+      if (!chunk.web?.uri) return null;
+      
+      return {
+        title: chunk.web.title || "Source",
+        uri: chunk.web.uri,
+        date: "N/A", // Grounding metadata doesn't include dates
+        reference: responseText.substring(0, 200) + "..." // Use relevant portion of response
+      };
+    })
+    .filter((s: any) => s !== null) || [];
 
-    Extract key information into a JSON structure with "sources".
-    Each source must have:
-    - title: Title of the document or article
-    - uri: Direct URL link
-    - date: Date of publication (or "N/A")
-    - reference: A SHORT quote (max 1-3 sentences) specific to the topic. Do not summarize, quote directly.
-
-    Return in JSON format.
-  `;
-
-  // We use a non-search model to extract structured data from the search result context
-  // This avoids the issue where search tool models might not strictly follow JSON schema
-  const result = await modelNoSearch.generateContent(prompt);
-  return JSON.parse(result.response.text());
+  return { sources };
 }
 
 export async function getScopeAnalysis(rightName: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const query = `Find primary legal instruments (treaties, conventions, laws) protecting "${rightName}" in ${scope} context ${subScope ? `specifically for ${subScope}` : ''}. Quote the specific article.`;
+  const query = `Find primary legal instruments (treaties, conventions, laws) protecting "${rightName}" in ${scope} context ${subScope ? `specifically for ${subScope}` : ''}. Quote the specific article and provide the exact source.`;
 
   try {
     const result = await model.generateContent(query);
@@ -68,13 +54,9 @@ export async function getScopeAnalysis(rightName: string, scope: Scope, subScope
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const candidate = result.response.candidates?.[0] as any;
     const groundingMetadata = candidate?.groundingMetadata;
-    const groundingUrls = groundingMetadata?.groundingChunks
-      ?.map((c: any) => ({ title: c.web?.title || "Source", uri: c.web?.uri }))
-      .filter((c: any) => c.uri) || [];
 
-    // Parse the textual text into our structured format
-    const structured = await parseSearchResults(query, text);
-    return { ...structured, groundingUrls };
+    // Use the actual grounding metadata instead of trying to parse the text
+    return extractSourcesFromGrounding(groundingMetadata, text);
   } catch (error) {
     console.error("Legal search failed:", error);
     return { sources: [] };
@@ -82,7 +64,7 @@ export async function getScopeAnalysis(rightName: string, scope: Scope, subScope
 }
 
 export async function getStatusAnalysis(rightName: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const query = `Find recent reports (last 6 months) from NGOs (Human Rights Watch, Amnesty, UN) on the status of "${rightName}" in ${subScope || 'the world'}. Quote specific findings.`;
+  const query = `Find recent reports (last 6 months) from NGOs (Human Rights Watch, Amnesty, UN) on the status of "${rightName}" in ${subScope || 'the world'}. Quote specific findings with sources.`;
 
   try {
     const result = await model.generateContent(query);
@@ -90,12 +72,8 @@ export async function getStatusAnalysis(rightName: string, scope: Scope, subScop
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const candidate = result.response.candidates?.[0] as any;
     const groundingMetadata = candidate?.groundingMetadata;
-    const groundingUrls = groundingMetadata?.groundingChunks
-      ?.map((c: any) => ({ title: c.web?.title || "Source", uri: c.web?.uri }))
-      .filter((c: any) => c.uri) || [];
 
-    const structured = await parseSearchResults(query, text);
-    return { ...structured, groundingUrls };
+    return extractSourcesFromGrounding(groundingMetadata, text);
   } catch (error) {
     console.error("Status search failed:", error);
     return { sources: [] };
@@ -103,7 +81,7 @@ export async function getStatusAnalysis(rightName: string, scope: Scope, subScop
 }
 
 export async function getNexusAnalysis(fromRight: string, toRight: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const query = `Find academic research or scholarly articles connecting "${fromRight}" and "${toRight}". Explain the intersection.`;
+  const query = `Find academic research or scholarly articles connecting "${fromRight}" and "${toRight}". Explain the intersection with citations.`;
 
   try {
     const result = await model.generateContent(query);
@@ -111,12 +89,8 @@ export async function getNexusAnalysis(fromRight: string, toRight: string, scope
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const candidate = result.response.candidates?.[0] as any;
     const groundingMetadata = candidate?.groundingMetadata;
-    const groundingUrls = groundingMetadata?.groundingChunks
-      ?.map((c: any) => ({ title: c.web?.title || "Source", uri: c.web?.uri }))
-      .filter((c: any) => c.uri) || [];
 
-    const structured = await parseSearchResults(query, text);
-    return { ...structured, groundingUrls };
+    return extractSourcesFromGrounding(groundingMetadata, text);
   } catch (error) {
     console.error("Nexus search failed:", error);
     return { sources: [] };
