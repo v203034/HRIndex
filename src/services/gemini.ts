@@ -36,114 +36,30 @@ const modelNoSearch = genAI.getGenerativeModel({
   }
 });
 
-// Trusted domains for legal instruments, research, and reports
-const TRUSTED_DOMAINS = {
-  legal: [
-    // International
-    'un.org', 'ohchr.org', 'unicef.org', 'unesco.org', 'who.int', 'ilo.org',
-    'treaties.un.org', 'legal.un.org', 'icj-cij.org',
-    // Regional bodies
-    'echr.coe.int', // European Court of Human Rights
-    'coe.int', // Council of Europe
-    'achpr.org', // African Commission on Human and Peoples' Rights
-    'african-court.org', // African Court
-    'corteidh.or.cr', // Inter-American Court of Human Rights
-    'oas.org', // Organization of American States
-    'iachr.org', // Inter-American Commission
-    'asean.org', // ASEAN
-    'europarl.europa.eu', // European Parliament
-    'europa.eu', // European Union
-    'refworld.org', // UNHCR Refworld (has regional instruments)
-    // National governments
-    '.gov', '.gob', '.gc.ca', '.gov.uk', '.gov.au', // Government sites
-    'legislation.gov.uk', // UK legislation
-    'legifrance.gouv.fr', // French legislation
-    'gesetze-im-internet.de', // German legislation
-    'constitution.org', // Constitutional documents
-    'constituteproject.org', // Constitutions database
-  ],
-  ngo: [
-    'hrw.org', 'amnesty.org', 'icrc.org', 'humanrightsfirst.org',
-    'article19.org', 'fidh.org', 'civilliberties.org'
-  ],
-  academic: [
-    'scholar.google.com',
-    'researchgate.net',
-    'academia.edu',
-    'ssrn.com',
-    'arxiv.org',
-    '.edu',
-    '.gov',
-    'philpapers.org',
-    'semanticscholar.org',
-    'europepmc.org',
-    'ncbi.nlm.nih.gov',
-    'openaccess',
-    '/pdf',
-  ]
-};
+// Simplified - just filter out obviously bad academic sources
+const PAYWALLED_DOMAINS = [
+  'jstor.org',
+  'springer.com/article',
+  'sciencedirect.com/science/article',
+  'tandfonline.com/doi/abs',
+  'wiley.com/doi/abs',
+  '/abstract',
+  '/citation'
+];
 
-// Helper to check if URL is from trusted source
-function isTrustedSource(url: string, type: 'legal' | 'ngo' | 'academic'): boolean {
-  return TRUSTED_DOMAINS[type].some(domain => url.toLowerCase().includes(domain.toLowerCase()));
-}
-
-// Verify URL is likely to be accessible
-function isLikelyAccessible(url: string, sourceType: 'legal' | 'ngo' | 'academic'): boolean {
-  if (sourceType === 'legal' || sourceType === 'ngo') {
-    return true;
-  }
-  
-  const goodPatterns = [
-    'scholar.google.com',
-    'researchgate.net',
-    'academia.edu',
-    'ssrn.com',
-    'arxiv.org',
-    '.edu',
-    '/pdf',
-    'openaccess',
-    'philpapers.org',
-    'semanticscholar.org',
-    'europepmc.org',
-    'ncbi.nlm.nih.gov/pmc'
-  ];
-  
-  const badPatterns = [
-    'jstor.org',
-    'springer.com',
-    'sciencedirect.com',
-    'tandfonline.com',
-    'wiley.com',
-    'cambridge.org/core/journals',
-    'oxfordjournals.org',
-    '/abstract',
-    '/citation',
-  ];
-  
-  const isGood = goodPatterns.some(pattern => url.toLowerCase().includes(pattern));
-  const isBad = badPatterns.some(pattern => url.toLowerCase().includes(pattern));
-  
-  return isGood && !isBad;
+function isPaywalled(url: string): boolean {
+  return PAYWALLED_DOMAINS.some(pattern => url.toLowerCase().includes(pattern));
 }
 
 // Helper to parse search results
 async function parseSearchResults(query: string, searchContext: string, groundingUrls: any[], sourceType: 'legal' | 'ngo' | 'academic'): Promise<DialogueResult> {
-  let trustedUrls;
+  // For academic sources, filter out paywalls. For legal/NGO, use everything.
+  const filteredUrls = sourceType === 'academic' 
+    ? groundingUrls.filter(url => !isPaywalled(url.uri))
+    : groundingUrls;
   
-  if (sourceType === 'legal') {
-    // For legal sources, be more permissive - just check basic trust
-    trustedUrls = groundingUrls.filter(url => isTrustedSource(url.uri, sourceType));
-  } else {
-    // For academic/NGO, apply both filters
-    trustedUrls = groundingUrls.filter(url => 
-      isTrustedSource(url.uri, sourceType) && isLikelyAccessible(url.uri, sourceType)
-    );
-  }
-  
-  if (trustedUrls.length === 0) {
-    console.warn("No trusted/accessible sources found in grounding results");
-    console.log("Available URLs:", groundingUrls.map(u => u.uri)); // Debug logging
+  if (filteredUrls.length === 0) {
+    console.warn("No sources available after filtering");
     return { sources: [] };
   }
 
@@ -153,8 +69,8 @@ async function parseSearchResults(query: string, searchContext: string, groundin
     SEARCH CONTEXT:
     ${searchContext}
 
-    Available verified sources (ONLY reference these by index, DO NOT invent sources):
-    ${trustedUrls.map((u, i) => `[${i}] ${u.title}\n    URL: ${u.uri}`).join('\n\n')}
+    Available sources (ONLY reference these by index, DO NOT invent sources):
+    ${filteredUrls.map((u, i) => `[${i}] ${u.title}\n    URL: ${u.uri}`).join('\n\n')}
 
     CRITICAL RULES:
     1. ONLY use sources that appear in the list above
@@ -180,7 +96,7 @@ async function parseSearchResults(query: string, searchContext: string, groundin
     const sources = parsed.sourceMatches
       .filter((match: any) => {
         const index = match.urlIndex;
-        const isValid = Number.isInteger(index) && index >= 0 && index < trustedUrls.length;
+        const isValid = Number.isInteger(index) && index >= 0 && index < filteredUrls.length;
         if (!isValid) {
           console.warn(`Invalid urlIndex ${index}, skipping source`);
         }
@@ -188,7 +104,7 @@ async function parseSearchResults(query: string, searchContext: string, groundin
       })
       .map((match: any) => ({
         title: match.title,
-        uri: trustedUrls[match.urlIndex].uri,
+        uri: filteredUrls[match.urlIndex].uri,
         date: match.year || "N/A",
         reference: match.reference
       }));
@@ -204,16 +120,12 @@ async function parseSearchResults(query: string, searchContext: string, groundin
 function getScopeSearchInstructions(scope: Scope, subScope: string, rightName: string): string {
   switch (scope.toLowerCase()) {
     case 'international':
-      return `Search for INTERNATIONAL legal instruments protecting "${rightName}".
+      return `Search for INTERNATIONAL legal instruments and treaties protecting "${rightName}".
       
-      Focus on:
-      - UN treaties and conventions (treaties.un.org, ohchr.org)
-      - International Covenant on Civil and Political Rights (ICCPR)
-      - International Covenant on Economic, Social and Cultural Rights (ICESCR)
-      - Universal Declaration of Human Rights (UDHR)
-      - Convention on the Rights of the Child (CRC)
-      - Convention on the Elimination of All Forms of Discrimination Against Women (CEDAW)
-      - Other UN human rights treaties
+      Prioritize:
+      - UN treaties and conventions (ICCPR, ICESCR, UDHR, CRC, CEDAW)
+      - Official UN and OHCHR documents
+      - International legal frameworks
       
       Include full official names with adoption years and specific article numbers.`;
 
@@ -225,62 +137,40 @@ function getScopeSearchInstructions(scope: Scope, subScope: string, rightName: s
         if (region.includes('europe') || region.includes('european')) {
           regionalInstructions += ` in Europe.
           
-          Focus on:
-          - European Convention on Human Rights (ECHR) - echr.coe.int
-          - EU Charter of Fundamental Rights - europa.eu
-          - Council of Europe conventions - coe.int
-          - European Court of Human Rights case law
+          Prioritize:
+          - European Convention on Human Rights (ECHR)
+          - EU Charter of Fundamental Rights
+          - Council of Europe conventions
           
           Include article numbers and case citations.`;
         } else if (region.includes('africa') || region.includes('african')) {
           regionalInstructions += ` in Africa.
           
-          Focus on:
-          - African Charter on Human and Peoples' Rights - achpr.org
-          - African Court decisions - african-court.org
-          - Protocol on the Rights of Women in Africa
-          - African Children's Charter
+          Prioritize:
+          - African Charter on Human and Peoples' Rights
+          - African Court decisions
+          - Regional protocols
           
           Include article numbers and relevant decisions.`;
         } else if (region.includes('america') || region.includes('inter-american')) {
           regionalInstructions += ` in the Americas.
           
-          Focus on:
-          - American Convention on Human Rights - corteidh.or.cr
-          - Inter-American Court decisions - iachr.org
-          - American Declaration of the Rights and Duties of Man
-          - Additional Protocols
+          Prioritize:
+          - American Convention on Human Rights
+          - Inter-American Court decisions
+          - Regional declarations
           
           Include article numbers and case law.`;
-        } else if (region.includes('asia') || region.includes('asean')) {
-          regionalInstructions += ` in Asia.
-          
-          Focus on:
-          - ASEAN Human Rights Declaration - asean.org
-          - Regional mechanisms and frameworks
-          - Specialized conventions
-          
-          Include relevant provisions and mechanisms.`;
         } else {
-          regionalInstructions += `.
+          regionalInstructions += ` in ${subScope}.
           
-          Look for regional human rights systems including:
-          - European (ECHR, EU Charter)
-          - African (African Charter)
-          - Inter-American (American Convention)
-          - ASEAN (ASEAN Declaration)
-          
-          Include specific regional instruments and article numbers.`;
+          Find relevant regional human rights instruments and mechanisms.
+          Include specific provisions and article numbers.`;
         }
       } else {
         regionalInstructions += `.
         
-        Search across all regional systems:
-        - European Convention on Human Rights (echr.coe.int)
-        - African Charter on Human and Peoples' Rights (achpr.org)
-        - American Convention on Human Rights (corteidh.or.cr)
-        - ASEAN Human Rights Declaration (asean.org)
-        
+        Search across regional systems (European, African, Inter-American, ASEAN).
         Include article numbers and relevant provisions.`;
       }
       
@@ -290,25 +180,17 @@ function getScopeSearchInstructions(scope: Scope, subScope: string, rightName: s
       if (subScope) {
         return `Search for NATIONAL laws and constitutional provisions protecting "${rightName}" in ${subScope}.
         
-        Focus on:
-        - National constitution (constituteproject.org, constitution.org)
-        - Domestic legislation (.gov, .gob, legislation sites)
-        - Bill of Rights or equivalent
-        - Specific statutes and laws
-        - Supreme Court or Constitutional Court decisions
+        Prioritize:
+        - National constitution and Bill of Rights
+        - Domestic legislation and statutes
+        - Supreme/Constitutional Court decisions
         
-        Use official government sources (.gov, .gob, .gc.ca, .gov.uk, etc.)
         Include constitutional article numbers and statute names with years.`;
       } else {
         return `Search for examples of NATIONAL laws protecting "${rightName}" across different countries.
         
-        Focus on:
-        - Constitutional provisions (constituteproject.org)
-        - National legislation from various countries
-        - Comparative constitutional law
-        - Model national laws
-        
-        Include specific country examples with constitutional articles and statute names.`;
+        Focus on constitutional provisions and national legislation.
+        Include specific country examples with article numbers.`;
       }
 
     default:
@@ -357,20 +239,21 @@ export async function getStatusAnalysis(rightName: string, scope: Scope, subScop
       contents: [{
         role: 'user',
         parts: [{
-          text: `Search for recent reports (2024-2025) on "${rightName}" in ${subScope || 'the world'}.
+          text: `Search for recent reports and assessments on "${rightName}" ${subScope ? `in ${subScope}` : 'globally'}.
           
-          ONLY use sources from these domains:
-          - hrw.org (Human Rights Watch)
-          - amnesty.org (Amnesty International)
-          - ohchr.org (UN Human Rights)
+          Prioritize:
+          - Human Rights Watch (hrw.org)
+          - Amnesty International (amnesty.org)
+          - UN Human Rights reports (ohchr.org)
+          - Other reputable human rights organizations
           
           Find:
-          - Recent published reports with dates
+          - Recent published reports (2023-2025 preferred)
           - Country-specific assessments
           - Key findings about violations or progress
-          - Statistical data
+          - Statistical data if available
           
-          Include direct quotes from the reports.`
+          Include report titles, dates, and direct findings.`
         }]
       }]
     });
@@ -401,36 +284,29 @@ export async function getNexusAnalysis(fromRight: string, toRight: string, scope
       contents: [{
         role: 'user',
         parts: [{
-          text: `Use Google Scholar to search for peer-reviewed academic research on the intersection between "${fromRight}" and "${toRight}".
+          text: `Search for academic research on the relationship between "${fromRight}" and "${toRight}" in human rights.
           
-          Search query to use: "${fromRight}" AND "${toRight}" human rights intersection
+          Search for: "${fromRight}" AND "${toRight}" human rights
           
-          PRIORITY SOURCES (in order):
-          1. Google Scholar results (scholar.google.com)
-          2. Open access repositories (.edu, ResearchGate, Academia.edu)
-          3. SSRN and arXiv preprints
-          4. Government research papers (.gov)
-          5. PubMed Central open access (ncbi.nlm.nih.gov/pmc)
+          Prioritize OPEN ACCESS sources:
+          - Google Scholar open access articles
+          - University repositories (.edu)
+          - ResearchGate, Academia.edu
+          - SSRN and arXiv preprints
+          - Government research (.gov)
+          - PubMed Central (PMC)
           
-          CRITICAL - DO NOT USE:
-          - Paywalled journals (JSTOR, Springer, ScienceDirect, Wiley, Taylor & Francis)
-          - Abstract-only pages
-          - Citation-only pages
+          AVOID paywalled journals (JSTOR, Springer, ScienceDirect, Wiley, Taylor & Francis)
           
           Find:
           - Peer-reviewed journal articles
-          - Academic papers with full text access
           - Working papers and preprints
           - Theses and dissertations
-          - Government research publications
           
-          For each paper, include:
+          For each paper, note:
           - Full title with year
-          - Author(s) if available
-          - How the two rights intersect or interact
-          - Key findings or arguments
-          
-          Focus on papers that explicitly discuss both rights together.`
+          - How the two rights intersect
+          - Key findings or arguments`
         }]
       }]
     });
