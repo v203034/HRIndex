@@ -16,7 +16,6 @@
       --border: #5b5b5b;
       --grid: rgba(91,91,91,0.03);
     }
-
     body {
       font-family: 'Inter', sans-serif;
       background-color: var(--bg);
@@ -24,17 +23,14 @@
       overflow: hidden;
       font-weight: 200;
     }
-
     .font-typewriter { font-family: 'Courier Prime', monospace; }
     .font-technical { font-family: 'Space Mono', monospace; }
-
     .canvas-grid {
       background-image: 
         linear-gradient(to right, var(--grid) 1px, transparent 1px),
         linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
       background-size: 30px 30px;
     }
-
     /* Inner Dotted Lines Aesthetic */
     .btn-dotted {
       position: relative;
@@ -67,7 +63,6 @@
       border: 1px dotted var(--border);
       border-width: 1.5px;
     }
-
     .draggable-card {
       border: 1px solid var(--border);
       background: var(--paper);
@@ -86,10 +81,8 @@
     .draggable-card:hover::after {
       border-color: rgba(91,91,91,0.4);
     }
-
     .custom-scroll::-webkit-scrollbar { width: 3px; height: 3px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: rgba(91,91,91,0.1); }
-
     .nexus-line {
       stroke: var(--ink);
       stroke-width: 1;
@@ -97,18 +90,15 @@
       pointer-events: none;
       opacity: 0.25;
     }
-
     /* Technical Progress Bar Animation */
     @keyframes technical-scan {
       0% { transform: translateX(-100%); }
       50% { transform: translateX(0%); }
       100% { transform: translateX(100%); }
     }
-
     .scan-line {
       animation: technical-scan 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
     }
-
     /* Floating tooltips/labels */
     .indicator-label {
       font-size: 7px;
@@ -132,6 +122,18 @@
 </head>
 <body>
   <div id="root"></div>
+  
+  <!-- React app entry point -->
   <script type="module" src="/src/main.tsx"></script>
+  
+  <!-- Eruda Mobile Debug Console - ADDED -->
+  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+  <script>
+    eruda.init();
+    console.log('==========================================');
+    console.log('📱 ERUDA DEBUG CONSOLE ACTIVE');
+    console.log('Look for button in bottom-right corner');
+    console.log('==========================================');
+  </script>
 </body>
 </html>
