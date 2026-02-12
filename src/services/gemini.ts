@@ -16,154 +16,124 @@ const modelNoSearch = genAI.getGenerativeModel({
     responseSchema: {
       type: SchemaType.OBJECT,
       properties: {
-        sources: {
+        analysis: { type: SchemaType.STRING },
+        sourceMatches: {
           type: SchemaType.ARRAY,
           items: {
             type: SchemaType.OBJECT,
             properties: {
+              urlIndex: { type: SchemaType.NUMBER },
               title: { type: SchemaType.STRING },
-              uri: { type: SchemaType.STRING },
-              date: { type: SchemaType.STRING },
+              year: { type: SchemaType.STRING },
               reference: { type: SchemaType.STRING }
             },
-            required: ["title", "uri", "reference"]
+            required: ["urlIndex", "title", "reference"]
           }
         }
       },
-      required: ["sources"]
+      required: ["analysis", "sourceMatches"]
     }
   }
 });
 
 // Trusted domains for legal instruments, research, and reports
-const TRUSTED_DOMAINS = [
-  // International organizations
-  'un.org', 'ohchr.org', 'unicef.org', 'unesco.org', 'who.int', 'ilo.org',
-  // NGOs
-  'hrw.org', 'amnesty.org', 'icrc.org', 'hrw.org',
-  // Legal databases
-  'treaties.un.org', 'legal.un.org', 'icj-cij.org',
-  // Academic/Research
-  'scholar.google.com', 'jstor.org', 'sciencedirect.com', 'springer.com', 
-  'cambridge.org', 'oxfordjournals.org', 'wiley.com', 'tandfonline.com',
-  'ssrn.com', 'researchgate.net',
-  // Government legal sources
-  '.gov', '.edu'
-];
+const TRUSTED_DOMAINS = {
+  legal: [
+    'un.org', 'ohchr.org', 'unicef.org', 'unesco.org', 'who.int', 'ilo.org',
+    'treaties.un.org', 'legal.un.org', 'icj-cij.org'
+  ],
+  ngo: [
+    'hrw.org', 'amnesty.org', 'icrc.org', 'humanrightsfirst.org'
+  ],
+  academic: [
+    'scholar.google.com', // Google Scholar links
+    'researchgate.net', // Often has PDFs
+    'academia.edu', // Often has PDFs
+    'ssrn.com', // Open access preprints
+    'arxiv.org', // Open access preprints
+    '.edu', // University repositories
+    '.gov', // Government research
+    'philpapers.org', // Philosophy papers
+    'semanticscholar.org', // Semantic Scholar
+    'europepmc.org', // Europe PMC (open access)
+    'ncbi.nlm.nih.gov', // PubMed/PMC (open access medical)
+    'openaccess', // Any URL with openaccess in it
+    '/pdf', // URLs that directly link to PDFs
+  ]
+};
 
 // Helper to check if URL is from trusted source
-function isTrustedSource(url: string): boolean {
-  return TRUSTED_DOMAINS.some(domain => url.includes(domain));
+function isTrustedSource(url: string, type: 'legal' | 'ngo' | 'academic'): boolean {
+  return TRUSTED_DOMAINS[type].some(domain => url.toLowerCase().includes(domain.toLowerCase()));
 }
 
-// Helper to parse search results into desired format with quality filtering
-async function parseSearchResults(query: string, searchContext: string, groundingUrls: any[]): Promise<DialogueResult> {
-  // Filter for trusted sources only
-  const trustedUrls = groundingUrls.filter(url => isTrustedSource(url.uri));
+// Verify URL is likely to be accessible (especially for academic sources)
+function isLikelyAccessible(url: string, sourceType: 'legal' | 'ngo' | 'academic'): boolean {
+  // For legal and NGO sources, most URLs should be accessible
+  if (sourceType === 'legal' || sourceType === 'ngo') {
+    return true;
+  }
   
+  // For academic sources, be more selective
+  const goodPatterns = [
+    'scholar.google.com',
+    'researchgate.net',
+    'academia.edu',
+    'ssrn.com',
+    'arxiv.org',
+    '.edu',
+    '/pdf',
+    'openaccess',
+    'philpapers.org',
+    'semanticscholar.org',
+    'europepmc.org',
+    'ncbi.nlm.nih.gov/pmc' // PMC has free full text
+  ];
+  
+  // Exclude paywalled sources
+  const badPatterns = [
+    'jstor.org',
+    'springer.com',
+    'sciencedirect.com',
+    'tandfonline.com',
+    'wiley.com',
+    'cambridge.org/core/journals', // Paywalled journals
+    'oxfordjournals.org',
+    '/abstract', // Abstract only pages
+    '/citation', // Citation only pages
+  ];
+  
+  const isGood = goodPatterns.some(pattern => url.toLowerCase().includes(pattern));
+  const isBad = badPatterns.some(pattern => url.toLowerCase().includes(pattern));
+  
+  return isGood && !isBad;
+}
+
+// Helper to parse search results - uses URL index matching instead of letting model create URLs
+async function parseSearchResults(query: string, searchContext: string, groundingUrls: any[], sourceType: 'legal' | 'ngo' | 'academic'): Promise<DialogueResult> {
+  // Filter for trusted AND accessible sources
+  const trustedUrls = groundingUrls.filter(url => 
+    isTrustedSource(url.uri, sourceType) && isLikelyAccessible(url.uri, sourceType)
+  );
+  
+  if (trustedUrls.length === 0) {
+    console.warn("No trusted/accessible sources found in grounding results");
+    return { sources: [] };
+  }
+
   const prompt = `
     Based on the following search results about: "${query}"
     
     SEARCH CONTEXT:
     ${searchContext}
 
-    Available trusted sources:
-    ${trustedUrls.map((u, i) => `[${i}] ${u.title} - ${u.uri}`).join('\n')}
+    Available verified sources (ONLY reference these by index, DO NOT invent sources):
+    ${trustedUrls.map((u, i) => `[${i}] ${u.title}\n    URL: ${u.uri}`).join('\n\n')}
 
-    Extract key information into a JSON structure with "sources".
-    Each source must have:
-    - title: FULL official name of the document/treaty/report (e.g., "Universal Declaration of Human Rights (1948)" or "International Covenant on Civil and Political Rights (1966)")
-    - uri: Use ONLY the URLs from the trusted sources list above
-    - date: Year of publication or adoption (e.g., "1948", "1966", "2024")
-    - reference: A SHORT direct quote (max 1-3 sentences) from the document. Quote the specific article number or finding.
-
-    IMPORTANT: 
-    - For legal instruments, include the FULL NAME and YEAR in the title
-    - Use ONLY URLs that appear in the trusted sources list above
-    - Extract actual quotes, not summaries
-    - If no trusted sources found, return empty sources array
-
-    Return in JSON format.
-  `;
-
-  const result = await modelNoSearch.generateContent(prompt);
-  return JSON.parse(result.response.text());
-}
-
-export async function getScopeAnalysis(rightName: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const query = `Find official legal instruments and treaties (UN, international law) protecting "${rightName}" in ${scope} context ${subScope ? `specifically for ${subScope}` : ''}. Include full treaty names, years, and quote specific articles. Prioritize sources from un.org, ohchr.org, treaties.un.org`;
-
-  try {
-    const result = await model.generateContent(query);
-    const text = result.response.text();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const candidate = result.response.candidates?.[0] as any;
-    const groundingMetadata = candidate?.groundingMetadata;
-    const groundingUrls = groundingMetadata?.groundingChunks
-      ?.map((c: any) => ({ title: c.web?.title || "Source", uri: c.web?.uri }))
-      .filter((c: any) => c.uri) || [];
-
-    // Parse with trusted source filtering
-    const structured = await parseSearchResults(query, text, groundingUrls);
-    return structured;
-  } catch (error) {
-    console.error("Legal search failed:", error);
-    return { sources: [] };
-  }
-}
-
-export async function getStatusAnalysis(rightName: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const query = `Find recent reports (2024-2025) from Human Rights Watch, Amnesty International, UN Human Rights Council on "${rightName}" in ${subScope || 'the world'}. Include report titles, years, and quote specific findings. Use only hrw.org, amnesty.org, ohchr.org, un.org`;
-
-  try {
-    const result = await model.generateContent(query);
-    const text = result.response.text();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const candidate = result.response.candidates?.[0] as any;
-    const groundingMetadata = candidate?.groundingMetadata;
-    const groundingUrls = groundingMetadata?.groundingChunks
-      ?.map((c: any) => ({ title: c.web?.title || "Source", uri: c.web?.uri }))
-      .filter((c: any) => c.uri) || [];
-
-    const structured = await parseSearchResults(query, text, groundingUrls);
-    return structured;
-  } catch (error) {
-    console.error("Status search failed:", error);
-    return { sources: [] };
-  }
-}
-
-export async function getNexusAnalysis(fromRight: string, toRight: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const query = `Find peer-reviewed academic research connecting "${fromRight}" and "${toRight}". Include full article titles, publication years, and explain the intersection. Use only scholarly sources: JSTOR, ScienceDirect, Cambridge, Oxford, academic journals`;
-
-  try {
-    const result = await model.generateContent(query);
-    const text = result.response.text();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const candidate = result.response.candidates?.[0] as any;
-    const groundingMetadata = candidate?.groundingMetadata;
-    const groundingUrls = groundingMetadata?.groundingChunks
-      ?.map((c: any) => ({ title: c.web?.title || "Source", uri: c.web?.uri }))
-      .filter((c: any) => c.uri) || [];
-
-    const structured = await parseSearchResults(query, text, groundingUrls);
-    return structured;
-  } catch (error) {
-    console.error("Nexus search failed:", error);
-    return { sources: [] };
-  }
-}
-
-export async function getSemanticRights(term: string, rights: HumanRight[]): Promise<string[]> {
-  const prompt = `Given this term: "${term}", identify which of the following Human Rights IDs are most relevant.
-  Rights: ${JSON.stringify(rights.map(r => ({ id: r.id, name: r.name, summary: r.summary })))}
-  Return ONLY a JSON array of ID strings. Example: ["1", "5"]`;
-
-  try {
-    const result = await modelNoSearch.generateContent(prompt);
-    return JSON.parse(result.response.text());
-  } catch (error) {
-    console.error("Semantic search failed:", error);
-    return [];
-  }
-}
+    CRITICAL RULES:
+    1. ONLY use sources that appear in the list above
+    2. Reference sources by their index number [0, 1, 2, etc.]
+    3. DO NOT create, invent, or modify any URLs
+    4. If a source isn't in the list, don't include it
+    5. Better to return fewer sources than to hallucinate
+    6. Each source MUST have been found in the search res
