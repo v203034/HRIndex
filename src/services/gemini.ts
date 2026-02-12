@@ -24,7 +24,6 @@ const modelNoSearch = genAI.getGenerativeModel({
             properties: {
               urlIndex: { type: SchemaType.NUMBER },
               title: { type: SchemaType.STRING },
-              year: { type: SchemaType.STRING },
               reference: { type: SchemaType.STRING }
             },
             required: ["urlIndex", "title", "reference"]
@@ -36,8 +35,10 @@ const modelNoSearch = genAI.getGenerativeModel({
   }
 });
 
-// Simplified - just filter out obviously bad academic sources
-const PAYWALLED_DOMAINS = [
+// Simple filtering - remove obviously bad sources
+const EXCLUDED_DOMAINS = [
+  'wikipedia.org',
+  'wiki',
   'jstor.org',
   'springer.com/article',
   'sciencedirect.com/science/article',
@@ -47,16 +48,14 @@ const PAYWALLED_DOMAINS = [
   '/citation'
 ];
 
-function isPaywalled(url: string): boolean {
-  return PAYWALLED_DOMAINS.some(pattern => url.toLowerCase().includes(pattern));
+function shouldExclude(url: string): boolean {
+  return EXCLUDED_DOMAINS.some(pattern => url.toLowerCase().includes(pattern));
 }
 
 // Helper to parse search results
 async function parseSearchResults(query: string, searchContext: string, groundingUrls: any[], sourceType: 'legal' | 'ngo' | 'academic'): Promise<DialogueResult> {
-  // For academic sources, filter out paywalls. For legal/NGO, use everything.
-  const filteredUrls = sourceType === 'academic' 
-    ? groundingUrls.filter(url => !isPaywalled(url.uri))
-    : groundingUrls;
+  // Filter out excluded domains
+  const filteredUrls = groundingUrls.filter(url => !shouldExclude(url.uri));
   
   if (filteredUrls.length === 0) {
     console.warn("No sources available after filtering");
@@ -76,14 +75,14 @@ async function parseSearchResults(query: string, searchContext: string, groundin
     1. ONLY use sources that appear in the list above
     2. Reference sources by their index number [0, 1, 2, etc.]
     3. DO NOT create, invent, or modify any URLs
-    4. If a source isn't in the list, don't include it
-    5. Better to return fewer sources than to hallucinate
-    6. Each source MUST have been found in the search results
+    4. Prioritize official/primary sources over secondary sources
+    5. If multiple sources point to the same instrument/article, choose the most official one
+    6. Better to return fewer high-quality sources than many duplicates
+    7. Each source MUST have been found in the search results
 
     For each source you reference:
     - urlIndex: The exact index from the list above
-    - title: Enhanced with full official name and year if available
-    - year: Publication year (or "N/A")
+    - title: Full official name (include year in title if it's part of the official name)
     - reference: Direct quote or specific finding (max 2 sentences)
 
     Return JSON with "analysis" (brief summary) and "sourceMatches" array.
@@ -105,7 +104,6 @@ async function parseSearchResults(query: string, searchContext: string, groundin
       .map((match: any) => ({
         title: match.title,
         uri: filteredUrls[match.urlIndex].uri,
-        date: match.year || "N/A",
         reference: match.reference
       }));
 
@@ -120,83 +118,151 @@ async function parseSearchResults(query: string, searchContext: string, groundin
 function getScopeSearchInstructions(scope: Scope, subScope: string, rightName: string): string {
   switch (scope.toLowerCase()) {
     case 'international':
-      return `Search for INTERNATIONAL legal instruments and treaties protecting "${rightName}".
+      return `Search for OFFICIAL INTERNATIONAL legal instruments protecting "${rightName}".
       
-      Prioritize:
-      - UN treaties and conventions (ICCPR, ICESCR, UDHR, CRC, CEDAW)
-      - Official UN and OHCHR documents
-      - International legal frameworks
+      REQUIRED: Search ONLY official sources from international organizations:
+      - United Nations official sites (un.org, ohchr.org, treaties.un.org)
+      - Specialized UN agencies (unicef.org, unesco.org, who.int, ilo.org)
+      - International courts (icj-cij.org)
       
-      Include full official names with adoption years and specific article numbers.`;
+      DO NOT USE:
+      - Wikipedia or encyclopedias
+      - Secondary sources or summaries
+      - Educational websites
+      - News articles
+      
+      Find PRIMARY legal texts (both foundational and recent instruments):
+      - International Covenant on Civil and Political Rights (ICCPR) - 1966
+      - International Covenant on Economic, Social and Cultural Rights (ICESCR) - 1966
+      - Universal Declaration of Human Rights (UDHR) - 1948
+      - Convention on the Rights of the Child (CRC) - 1989
+      - Convention on the Elimination of All Forms of Discrimination Against Women (CEDAW) - 1976
+      - Other relevant UN treaties (include both classic instruments and recent ones)
+      
+      Include: Full official treaty names with their adoption years, and specific article numbers that protect this right.`;
 
     case 'regional':
-      let regionalInstructions = `Search for REGIONAL legal instruments protecting "${rightName}"`;
+      let regionalInstructions = `Search for OFFICIAL REGIONAL legal instruments protecting "${rightName}"`;
       
       if (subScope) {
         const region = subScope.toLowerCase();
         if (region.includes('europe') || region.includes('european')) {
           regionalInstructions += ` in Europe.
           
-          Prioritize:
+          REQUIRED: Official sources only:
+          - European Court of Human Rights (echr.coe.int)
+          - Council of Europe (coe.int)
+          - European Union official sites (europa.eu, europarl.europa.eu)
+          
+          DO NOT USE: Wikipedia, news sites, educational summaries
+          
+          Find PRIMARY texts:
           - European Convention on Human Rights (ECHR)
           - EU Charter of Fundamental Rights
           - Council of Europe conventions
+          - ECHR case law
           
-          Include article numbers and case citations.`;
+          Include: Article numbers, case citations, official document references.`;
         } else if (region.includes('africa') || region.includes('african')) {
           regionalInstructions += ` in Africa.
           
-          Prioritize:
-          - African Charter on Human and Peoples' Rights
-          - African Court decisions
-          - Regional protocols
+          REQUIRED: Official sources only:
+          - African Commission on Human and Peoples' Rights (achpr.org)
+          - African Court (african-court.org)
           
-          Include article numbers and relevant decisions.`;
+          DO NOT USE: Wikipedia, news sites, educational summaries
+          
+          Find PRIMARY texts:
+          - African Charter on Human and Peoples' Rights
+          - Protocol on the Rights of Women in Africa
+          - African Court decisions
+          
+          Include: Article numbers, case names, official references.`;
         } else if (region.includes('america') || region.includes('inter-american')) {
           regionalInstructions += ` in the Americas.
           
-          Prioritize:
+          REQUIRED: Official sources only:
+          - Inter-American Court of Human Rights (corteidh.or.cr)
+          - Inter-American Commission (iachr.org)
+          - Organization of American States (oas.org)
+          
+          DO NOT USE: Wikipedia, news sites, educational summaries
+          
+          Find PRIMARY texts:
           - American Convention on Human Rights
           - Inter-American Court decisions
-          - Regional declarations
+          - OAS declarations and protocols
           
-          Include article numbers and case law.`;
+          Include: Article numbers, case citations, official references.`;
         } else {
           regionalInstructions += ` in ${subScope}.
           
-          Find relevant regional human rights instruments and mechanisms.
-          Include specific provisions and article numbers.`;
+          REQUIRED: Official sources from regional organizations only
+          DO NOT USE: Wikipedia, news sites, educational summaries
+          
+          Find PRIMARY legal texts from official regional human rights bodies.
+          Include: Article numbers and official document references.`;
         }
       } else {
         regionalInstructions += `.
         
-        Search across regional systems (European, African, Inter-American, ASEAN).
-        Include article numbers and relevant provisions.`;
+        REQUIRED: Official sources from regional organizations:
+        - European Court of Human Rights (echr.coe.int)
+        - African Commission/Court (achpr.org, african-court.org)
+        - Inter-American Court (corteidh.or.cr)
+        - ASEAN official sites (asean.org)
+        
+        DO NOT USE: Wikipedia, news sites, educational summaries
+        
+        Find PRIMARY texts from official regional systems.
+        Include: Article numbers and official references.`;
       }
       
       return regionalInstructions;
 
     case 'national':
       if (subScope) {
-        return `Search for NATIONAL laws and constitutional provisions protecting "${rightName}" in ${subScope}.
+        return `Search for OFFICIAL NATIONAL legal documents protecting "${rightName}" in ${subScope}.
         
-        Prioritize:
-        - National constitution and Bill of Rights
+        REQUIRED: Official government sources only:
+        - National government websites (.gov, .gob, .gc.ca, .gov.uk, .gov.au, etc.)
+        - Official legislation databases (legislation.gov.uk, legifrance.gouv.fr, etc.)
+        - Constitutional databases (constituteproject.org, constitution.org)
+        - Supreme/Constitutional Court official sites
+        
+        DO NOT USE: Wikipedia, news articles, blogs, educational summaries
+        
+        Find PRIMARY legal texts:
+        - National constitution (specific articles)
         - Domestic legislation and statutes
-        - Supreme/Constitutional Court decisions
+        - Bill of Rights provisions
+        - Supreme Court/Constitutional Court decisions
         
-        Include constitutional article numbers and statute names with years.`;
+        Include: Constitutional article numbers, statute names with years, case citations.`;
       } else {
-        return `Search for examples of NATIONAL laws protecting "${rightName}" across different countries.
+        return `Search for examples of OFFICIAL NATIONAL legal documents protecting "${rightName}".
         
-        Focus on constitutional provisions and national legislation.
-        Include specific country examples with article numbers.`;
+        REQUIRED: Official sources:
+        - National government websites (.gov domains)
+        - Constitutional databases (constituteproject.org)
+        - Official legislation sites
+        
+        DO NOT USE: Wikipedia, news articles, educational summaries
+        
+        Find PRIMARY texts from various countries:
+        - Constitutional provisions with article numbers
+        - National legislation with statute names
+        
+        Include: Specific countries, article numbers, statute names with years.`;
       }
 
     default:
-      return `Search for legal instruments protecting "${rightName}" at ${scope} level ${subScope ? `in ${subScope}` : ''}.
+      return `Search for OFFICIAL legal instruments protecting "${rightName}" at ${scope} level ${subScope ? `in ${subScope}` : ''}.
       
-      Include full official names, years, and specific article numbers or provisions.`;
+      REQUIRED: Official sources from governments or international/regional organizations only
+      DO NOT USE: Wikipedia, news sites, educational summaries
+      
+      Include: Full official names, years, article numbers or provisions.`;
   }
 }
 
@@ -239,21 +305,35 @@ export async function getStatusAnalysis(rightName: string, scope: Scope, subScop
       contents: [{
         role: 'user',
         parts: [{
-          text: `Search for recent reports and assessments on "${rightName}" ${subScope ? `in ${subScope}` : 'globally'}.
+          text: `Search for the MOST RECENT OFFICIAL reports on "${rightName}" ${subScope ? `in ${subScope}` : 'globally'}.
           
-          Prioritize:
-          - Human Rights Watch (hrw.org)
-          - Amnesty International (amnesty.org)
-          - UN Human Rights reports (ohchr.org)
-          - Other reputable human rights organizations
+          CRITICAL: Find ONLY the latest reports from 2024-2025. Do not include older reports unless no recent ones exist.
           
-          Find:
-          - Recent published reports (2023-2025 preferred)
-          - Country-specific assessments
-          - Key findings about violations or progress
-          - Statistical data if available
+          REQUIRED: Official sources from established human rights organizations:
+          - Human Rights Watch (hrw.org) - latest annual reports, country reports
+          - Amnesty International (amnesty.org) - latest annual reports, research
+          - UN Human Rights Office (ohchr.org) - latest official reports, country visits
+          - International Committee of the Red Cross (icrc.org)
+          - UN specialized agencies (UNICEF, UNESCO, WHO, ILO)
           
-          Include report titles, dates, and direct findings.`
+          DO NOT USE:
+          - Wikipedia or encyclopedias
+          - News articles or opinion pieces
+          - Blogs or personal websites
+          - Secondary summaries
+          - Reports older than 2023 (unless addressing historical context)
+          
+          Find the LATEST PRIMARY research and reports:
+          - 2024-2025 annual reports (highest priority)
+          - Recent country-specific assessments
+          - Latest thematic reports
+          - Most current official findings and recommendations
+          - Recent statistical data from primary sources
+          
+          Avoid duplicates - if multiple sources cover the same report, choose the official organization's version.
+          
+          Include: Report titles WITH publication dates/years in the title, specific findings with direct quotes or data.
+          IMPORTANT: Make sure dates are visible in titles (e.g., "2024 World Report", "Annual Report 2025").`
         }]
       }]
     });
@@ -284,29 +364,51 @@ export async function getNexusAnalysis(fromRight: string, toRight: string, scope
       contents: [{
         role: 'user',
         parts: [{
-          text: `Search for academic research on the relationship between "${fromRight}" and "${toRight}" in human rights.
+          text: `Search for PEER-REVIEWED academic research on the relationship between "${fromRight}" and "${toRight}" in human rights.
           
-          Search for: "${fromRight}" AND "${toRight}" human rights
+          Search query: "${fromRight}" AND "${toRight}" human rights intersection
           
-          Prioritize OPEN ACCESS sources:
-          - Google Scholar open access articles
-          - University repositories (.edu)
-          - ResearchGate, Academia.edu
-          - SSRN and arXiv preprints
-          - Government research (.gov)
-          - PubMed Central (PMC)
+          TEMPORAL PRIORITY: Find either:
+          1. Highly influential/landmark research (highly cited, seminal works) - any year
+          2. Recent studies (2020-2025) showing current scholarship
           
-          AVOID paywalled journals (JSTOR, Springer, ScienceDirect, Wiley, Taylor & Francis)
+          Prefer papers that are EITHER frequently cited OR recently published, not mediocre old papers.
           
-          Find:
-          - Peer-reviewed journal articles
+          REQUIRED: Academic sources with full-text access:
+          - Google Scholar open access papers
+          - University institutional repositories (.edu domains)
+          - ResearchGate full papers (researchgate.net)
+          - Academia.edu full papers (academia.edu)
+          - SSRN working papers (ssrn.com)
+          - arXiv preprints (arxiv.org)
+          - Government research publications (.gov)
+          - PubMed Central open access (ncbi.nlm.nih.gov/pmc)
+          - PhD dissertations and theses
+          
+          DO NOT USE:
+          - Wikipedia or encyclopedias
+          - Paywalled journals (JSTOR, Springer, ScienceDirect, Wiley, Taylor & Francis)
+          - Abstract-only pages
+          - Citation-only pages
+          - News articles or blogs
+          
+          Find PEER-REVIEWED or SCHOLARLY work:
+          - Journal articles (open access)
           - Working papers and preprints
-          - Theses and dissertations
+          - PhD dissertations
+          - Academic books (if available)
+          - Conference papers
           
-          For each paper, note:
-          - Full title with year
-          - How the two rights intersect
-          - Key findings or arguments`
+          Avoid duplicates - if the same paper appears on multiple sites, choose the most official/primary version (e.g., author's institutional repository over ResearchGate).
+          
+          For each paper include in the title:
+          - Full title WITH publication year in parentheses (e.g., "Title of Paper (2023)")
+          - Author(s) if easily visible
+          
+          In the reference field:
+          - How the two rights specifically intersect or interact
+          - Key findings or theoretical arguments
+          - Journal name (if applicable)`
         }]
       }]
     });
