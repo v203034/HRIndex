@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { HumanRight, Scope } from '../types';
 import { INITIAL_RIGHTS, COUNTRIES, REGIONS } from '../constants';
