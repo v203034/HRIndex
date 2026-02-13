@@ -249,7 +249,7 @@ const Constellation: React.FC<ConstellationProps> = ({
           )}
         </div>
 
-        {/* Categories Header (Red Box Area) */}
+        {/* Categories Header */}
         <div className="px-4 py-3 border-b border-[#5b5b5b] flex flex-col gap-3 bg-gray-50 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -275,20 +275,6 @@ const Constellation: React.FC<ConstellationProps> = ({
               {!subScope && <span className="text-[6px] font-technical opacity-30 tracking-[0.2em]">CODEX_MODULES</span>}
             </div>
           </div>
-
-          {/* Results counter when searching */}
-          {rightsSearchTerm && (
-            <div className="text-[7px] font-technical opacity-40 uppercase">
-              {(() => {
-                const totalResults = categories.reduce((sum, cat) => sum + getFilteredRights(cat.key).length, 0);
-                return totalResults > 0 
-                  ? `${totalResults} RECORD${totalResults === 1 ? '' : 'S'} FOUND` 
-                  : isSearchingSemantics 
-                    ? 'SEARCHING...' 
-                    : 'NO RECORDS FOUND';
-              })()}
-            </div>
-          )}
 
           {/* Rapid Concept Search for Rights */}
           <div className="relative">
