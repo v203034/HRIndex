@@ -6,12 +6,12 @@ const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || "");
 
 // Model WITH Google Search - FIXED: Removed incorrect googleSearch tool
 const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash"
+  model: "gemini-2.5-flash-lite"
 });
 
 // Model for structured JSON parsing (no search)
 const modelNoSearch = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash",
+  model: "gemini-2.5-flash-lite",
   generationConfig: {
     responseMimeType: "application/json",
     responseSchema: {
