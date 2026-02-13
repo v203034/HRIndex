@@ -1,4 +1,3 @@
-
 import { HumanRight } from './types';
 
 export const INITIAL_RIGHTS: HumanRight[] = [
