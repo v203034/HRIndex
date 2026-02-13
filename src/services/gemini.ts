@@ -66,15 +66,19 @@ async function parseSearchResults(query: string, searchContext: string): Promise
 }
 
 export async function getScopeAnalysis(rightName: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const query = `Search for PRIMARY legal documents and treaties protecting "${rightName}" in ${scope} context ${subScope ? `specifically for ${subScope}` : ''}. Find:
-  
-  - International treaties (UDHR, ICCPR, ICESCR, etc.)
-  - Regional conventions (European Convention, American Convention, African Charter, etc.)
-  - National constitutions and laws ${subScope ? `for ${subScope}` : ''}
-  - Specific article numbers and provisions
-  - Official UN documents and resolutions
-  
-  Provide REAL, verifiable legal instruments with exact citations and article numbers. Include links to official sources like UN treaty databases, government websites, or legal repositories.`;
+  const query = `List specific international treaties, conventions, and laws that protect ${rightName}. For EACH source provide:
+
+1. FULL OFFICIAL NAME with YEAR in parentheses (Example: "Universal Declaration of Human Rights (1948)" or "International Covenant on Civil and Political Rights (1966)")
+2. The SPECIFIC ARTICLE NUMBER that protects this right
+3. The EXACT TEXT of that article (a direct quote, not a summary)
+
+Include:
+- Universal Declaration of Human Rights (UDHR)
+- International Covenant on Civil and Political Rights (ICCPR) 
+- International Covenant on Economic, Social and Cultural Rights (ICESCR)
+- Regional conventions if relevant to ${scope} and ${subScope || 'any region'}
+
+For EACH treaty, give the article number and quote the exact text of the provision.`;
 
   try {
     console.log('🔍 Legal search starting...');
@@ -82,20 +86,24 @@ export async function getScopeAnalysis(rightName: string, scope: Scope, subScope
     const text = result.response.text();
     console.log('✅ Legal search response received');
     
-    const legalPrompt = `
-      Based on this information about legal protections for "${rightName}":
-      
-      CONTEXT:
-      ${text}
+    const legalPrompt = `From this legal research about ${rightName}:
 
-      Extract legal instruments into a JSON structure with "sources".
-      Each source MUST be a real legal document with:
-      - title: Full official name of the treaty, convention, or law
-      - uri: Official link to the document (UN treaty collection, government website, or construct as needed)
-      - reference: Exact article number and a SHORT quote of the relevant provision (1-2 sentences)
+${text}
 
-      Return in JSON format. Prioritize real, official legal instruments.
-    `;
+Create JSON with sources array. Each source MUST have:
+
+{
+  "title": "Full treaty name WITH YEAR - Example: International Covenant on Civil and Political Rights (1966)",
+  "uri": "https://www.ohchr.org/ followed by the treaty path OR construct https://www.un.org/en/ link",
+  "reference": "Article X: Then the EXACT QUOTED TEXT from that article, not a summary. Example: Article 9: Everyone has the right to liberty and security of person. No one shall be subjected to arbitrary arrest or detention."
+}
+
+CRITICAL: 
+- Title MUST include year in parentheses
+- Reference MUST start with Article number then colon then EXACT quoted text
+- NO summaries, only direct quotes from the actual treaty text
+
+Return 3-5 sources.`;
 
     const legalResult = await modelNoSearch.generateContent(legalPrompt);
     const parsed = JSON.parse(legalResult.response.text());
@@ -114,11 +122,17 @@ export async function getScopeAnalysis(rightName: string, scope: Scope, subScope
 }
 
 export async function getStatusAnalysis(rightName: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const queryText = `You are a human rights researcher. Find SPECIFIC, REAL reports from human rights organizations about ${rightName} in ${subScope || 'the world'}.
+  const queryText = `List specific real reports from Human Rights Watch, Amnesty International, or UN about ${rightName} in ${subScope || 'the world'} from 2023-2024.
 
-Requirements: Find 3-4 actual published reports from Human Rights Watch, Amnesty International, UN Human Rights Council, or similar credible organizations. Focus on reports from the last 12-18 months if possible. Each report must have a specific title and publication date.
+For EACH report provide:
+1. EXACT report title as published
+2. Organization name and month/year
+3. A DIRECT QUOTE (not summary) from the report in quotation marks about ${rightName}
 
-Return the actual reports you find with their exact titles, organizations, and publication dates.`;
+Example format:
+Title: World Report 2024: Mexico Events
+Organization: Human Rights Watch, January 2024
+Quote: "Security forces continue to commit enforced disappearances and torture with impunity"`;
 
   try {
     console.log('🔍 Status search starting...');
@@ -126,26 +140,24 @@ Return the actual reports you find with their exact titles, organizations, and p
     const text = result.response.text();
     console.log('✅ Status search response received');
     
-    const statusPrompt = `You found these reports about ${rightName} in ${subScope || 'the world'}:
-      
-CONTEXT:
+    const statusPrompt = `From these reports about ${rightName}:
+
 ${text}
 
-Create a JSON structure with sources array. For each report found, use this MANDATORY FORMAT:
+Create JSON with sources array. Each source MUST have:
 
 {
-  "title": "EXACT report title as published",
-  "uri": "Direct URL to the report on the organization website",
-  "reference": "DIRECT QUOTE from the report in quotation marks (1-2 sentences) about the topic, followed by - Organization Name, Month Year"
+  "title": "Exact report title",
+  "uri": "https://www.hrw.org/world-report/2024/country-chapters/COUNTRY or https://www.amnesty.org/en/location/REGION/report/",
+  "reference": "Put the DIRECT QUOTE in quotation marks here - Organization Name, Month Year"
 }
 
-CRITICAL RULES:
-1. Title must be SPECIFIC and REAL
-2. URI must be direct link to actual report
-3. Reference MUST contain a DIRECT QUOTE in quotation marks
-4. DO NOT write summaries, only direct quotes from reports
+CRITICAL:
+- URI must be actual HRW or Amnesty website link, construct the URL based on organization and country/region
+- Reference MUST be a direct quote in quotation marks followed by source attribution
+- NO summaries
 
-Return 3-4 sources with real reports and direct quotes.`;
+Return 3-4 sources.`;
 
     const statusResult = await modelNoSearch.generateContent(statusPrompt);
     const parsed = JSON.parse(statusResult.response.text());
@@ -164,13 +176,22 @@ Return 3-4 sources with real reports and direct quotes.`;
 }
 
 export async function getNexusAnalysis(fromRight: string, toRight: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const queryText = `You are a legal research assistant. Find SPECIFIC, REAL academic papers from Google Scholar that analyze both ${fromRight} AND ${toRight} together in human rights context.
+  const queryText = `You are searching academic databases. Find 3-4 REAL published academic papers that analyze BOTH ${fromRight} AND ${toRight} together.
 
-Requirements: Find 3-4 actual published papers. Each paper must have a specific title, author names, publication year, and journal name. Papers must directly discuss BOTH rights and their relationship.
+For EACH paper you find, provide:
+1. Exact paper title as published
+2. Author names (Last name, First initial format)
+3. Year of publication
+4. Journal name
+5. A DIRECT QUOTE from the abstract about how these two rights relate (in quotation marks)
 
-Search Google Scholar for papers about the intersection of these two rights.
+Search for papers like:
+- Papers with both terms in the title
+- Law review articles about both rights
+- Comparative constitutional law papers
+- Human rights scholarship
 
-Return the actual papers you find with their exact titles, authors, and where they were published.`;
+Give me real papers with author names, years, journals, and quoted abstracts.`;
 
   try {
     console.log('🔍 Nexus search starting for Google Scholar...');
@@ -178,26 +199,32 @@ Return the actual papers you find with their exact titles, authors, and where th
     const text = result.response.text();
     console.log('✅ Nexus search response received');
     
-    const academicPrompt = `You found these papers about ${fromRight} and ${toRight}:
-      
-CONTEXT:
+    const academicPrompt = `From this academic research about ${fromRight} and ${toRight}:
+
 ${text}
 
-Create a JSON structure with sources array. For each paper found, use this MANDATORY FORMAT:
+Create JSON with sources array. Each source MUST have:
 
 {
-  "title": "EXACT paper title as published",
-  "uri": "https://scholar.google.com/scholar?q=EXACT+TITLE+WITH+PLUS+SIGNS",
-  "reference": "DIRECT QUOTE from the paper abstract or introduction in quotation marks (1-2 sentences) that discusses both rights, followed by - Author names, Year, Journal Name"
+  "title": "Exact paper title - Author(s), Year",
+  "uri": "Construct DOI link as https://doi.org/10.XXXX/example OR https://scholar.google.com/scholar?q=exact+paper+title+author+year (use actual title, author, year)",
+  "reference": "Put DIRECT QUOTE from abstract in quotation marks here. Published in Journal Name, Year."
 }
 
-CRITICAL RULES:
-1. Title must be SPECIFIC and REAL
-2. URI must be Google Scholar search link with exact paper title
-3. Reference MUST contain a DIRECT QUOTE in quotation marks
-4. DO NOT write summaries, only direct quotes from papers
+EXAMPLE of correct format:
+{
+  "title": "Balancing Privacy and Security in Digital Age - Smith, J., 2022",
+  "uri": "https://scholar.google.com/scholar?q=balancing+privacy+security+digital+age+smith+2022",
+  "reference": "This article examines the constitutional tensions between privacy rights and national security in the context of mass surveillance. Published in Harvard Law Review, 2022."
+}
 
-Return 3-4 sources with real papers and direct quotes.`;
+CRITICAL:
+- Title MUST include author and year
+- URI must be Google Scholar link with actual paper title, author, year in the query
+- Reference must be DIRECT QUOTE from the paper followed by journal and year
+- NO generic summaries
+
+Return 3-4 sources with real papers.`;
 
     const academicResult = await modelNoSearch.generateContent(academicPrompt);
     const parsed = JSON.parse(academicResult.response.text());
@@ -208,7 +235,7 @@ Return 3-4 sources with real papers and direct quotes.`;
     return { 
       sources: [{
         title: "Academic research temporarily unavailable",
-        uri: `https://scholar.google.com/scholar?q=${encodeURIComponent(`"${fromRight}" AND "${toRight}" human rights`)}`,
+        uri: `https://scholar.google.com/scholar?q=${encodeURIComponent(`"${fromRight}" AND "${toRight}" human rights law`)}`,
         reference: `Search Google Scholar manually for peer-reviewed papers analyzing both ${fromRight} and ${toRight}. Use quotation marks around each term for precise results.`
       }]
     };
