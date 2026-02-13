@@ -24,7 +24,6 @@ const modelNoSearch = genAI.getGenerativeModel({
             properties: {
               title: { type: SchemaType.STRING },
               uri: { type: SchemaType.STRING },
-              date: { type: SchemaType.STRING },
               reference: { type: SchemaType.STRING }
             },
             required: ["title", "uri", "reference"]
@@ -48,7 +47,6 @@ async function parseSearchResults(query: string, searchContext: string): Promise
     Each source must have:
     - title: Title of the document or article
     - uri: A plausible URL (you can construct it based on the source name)
-    - date: Date of publication (or "N/A")
     - reference: A SHORT quote (max 1-3 sentences) specific to the topic.
 
     Return in JSON format.
@@ -86,7 +84,6 @@ export async function getScopeAnalysis(rightName: string, scope: Scope, subScope
       sources: [{
         title: "Information temporarily unavailable",
         uri: "#",
-        date: "N/A",
         reference: "Unable to retrieve legal framework information at this time. Please try again later."
       }]
     };
@@ -110,7 +107,6 @@ export async function getStatusAnalysis(rightName: string, scope: Scope, subScop
       sources: [{
         title: "Information temporarily unavailable",
         uri: "#",
-        date: "N/A",
         reference: "Unable to retrieve status information at this time. Please try again later."
       }]
     };
@@ -134,7 +130,6 @@ export async function getNexusAnalysis(fromRight: string, toRight: string, scope
       sources: [{
         title: "Information temporarily unavailable",
         uri: "#",
-        date: "N/A",
         reference: "Unable to retrieve nexus information at this time. Please try again later."
       }]
     };
