@@ -165,22 +165,26 @@ export async function getSemanticRights(term: string, rights: HumanRight[]): Pro
       return [];
     }
     
-    if (!Array.isArray(parsed)) {
-      console.warn('⚠️ Parsed result is not an array:', typeof parsed, parsed);
-      // If it's an object with an array property, try to extract it
-      if (typeof parsed === 'object' && parsed !== null) {
-        for (const key of Object.keys(parsed)) {
-          if (Array.isArray(parsed[key])) {
-            console.log('✅ Found array at key:', key);
-            return parsed[key];
-          }
-        }
-      }
-      return [];
+    // Check if it's already an array first
+    if (Array.isArray(parsed)) {
+      console.log('✅ Semantic search completed successfully:', parsed);
+      return parsed;
     }
     
-    console.log('✅ Semantic search completed successfully:', parsed);
-    return parsed;
+    // If it's an object with an array property, try to extract it
+    if (typeof parsed === 'object' && parsed !== null) {
+      console.warn('⚠️ Parsed result is not an array, searching for array in object:', typeof parsed, parsed);
+      const keys = Object.keys(parsed);
+      for (const key of keys) {
+        if (Array.isArray(parsed[key])) {
+          console.log('✅ Found array at key:', key);
+          return parsed[key];
+        }
+      }
+    }
+    
+    console.warn('⚠️ No array found, returning empty array');
+    return [];
   } catch (error) {
     console.error("❌ Semantic search failed:", error);
     return [];
