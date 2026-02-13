@@ -176,67 +176,56 @@ Return 3-4 sources.`;
 }
 
 export async function getNexusAnalysis(fromRight: string, toRight: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  const queryText = `You are searching academic databases. Find 3-4 REAL published academic papers that analyze BOTH ${fromRight} AND ${toRight} together.
+  const queryText = `Explain the scholarly understanding of how ${fromRight} and ${toRight} are interconnected in human rights law and practice. 
 
-For EACH paper you find, provide:
-1. Exact paper title as published
-2. Author names (Last name, First initial format)
-3. Year of publication
-4. Journal name
-5. A DIRECT QUOTE from the abstract about how these two rights relate (in quotation marks)
+Discuss:
+1. How violations of ${fromRight} often lead to or enable violations of ${toRight}
+2. How protecting ${toRight} can strengthen ${fromRight}
+3. Real-world examples where both rights are affected together
+4. Constitutional or international law principles that link them
 
-Search for papers like:
-- Papers with both terms in the title
-- Law review articles about both rights
-- Comparative constitutional law papers
-- Human rights scholarship
-
-Give me real papers with author names, years, journals, and quoted abstracts.`;
+Provide 3-4 key scholarly perspectives with enough detail that someone could understand the relationship.`;
 
   try {
-    console.log('🔍 Nexus search starting for Google Scholar...');
+    console.log('🔍 Nexus search starting...');
     const result = await model.generateContent(queryText);
     const text = result.response.text();
     console.log('✅ Nexus search response received');
     
-    const academicPrompt = `From this academic research about ${fromRight} and ${toRight}:
+    const academicPrompt = `From this analysis of the relationship between ${fromRight} and ${toRight}:
 
 ${text}
 
-Create JSON with sources array. Each source MUST have:
+Create JSON with sources array. Each source should represent a KEY SCHOLARLY PERSPECTIVE or PRINCIPLE linking these rights.
+
+Format each source as:
 
 {
-  "title": "Exact paper title - Author(s), Year",
-  "uri": "Construct DOI link as https://doi.org/10.XXXX/example OR https://scholar.google.com/scholar?q=exact+paper+title+author+year (use actual title, author, year)",
-  "reference": "Put DIRECT QUOTE from abstract in quotation marks here. Published in Journal Name, Year."
-}
-
-EXAMPLE of correct format:
-{
-  "title": "Balancing Privacy and Security in Digital Age - Smith, J., 2022",
-  "uri": "https://scholar.google.com/scholar?q=balancing+privacy+security+digital+age+smith+2022",
-  "reference": "This article examines the constitutional tensions between privacy rights and national security in the context of mass surveillance. Published in Harvard Law Review, 2022."
+  "title": "Descriptive title of the scholarly perspective - e.g., 'Constitutional Interdependence of ${fromRight} and ${toRight}'",
+  "uri": "https://scholar.google.com/scholar?q=${encodeURIComponent(`"${fromRight}" "${toRight}" human rights`)}",
+  "reference": "2-3 sentences explaining this scholarly perspective on how the rights relate. Be specific about the mechanism of connection."
 }
 
 CRITICAL:
-- Title MUST include author and year
-- URI must be Google Scholar link with actual paper title, author, year in the query
-- Reference must be DIRECT QUOTE from the paper followed by journal and year
-- NO generic summaries
+- Title should describe the PERSPECTIVE or PRINCIPLE, not claim to be a specific paper
+- URI should be a Google Scholar search link for users to explore papers themselves
+- Reference should be a clear 2-3 sentence explanation of how the rights connect
+- NO fake author names, NO fake years, NO fake paper titles
+- Focus on the SUBSTANCE of how the rights interconnect
 
-Return 3-4 sources with real papers.`;
+Return 3-4 scholarly perspectives.`;
 
     const academicResult = await modelNoSearch.generateContent(academicPrompt);
     const parsed = JSON.parse(academicResult.response.text());
-    console.log('✅ Academic sources parsed');
+    console.log('✅ Academic perspectives parsed');
     return parsed;
   } catch (error) {
     console.error("❌ Nexus search failed:", error);
     return { 
       sources: [{
-        title: "Academic research temporarily unavailable",
+        title: "Scholarly perspectives on rights interconnection",
         uri: `https://scholar.google.com/scholar?q=${encodeURIComponent(`"${fromRight}" AND "${toRight}" human rights law`)}`,
-        reference: `Search Google Scholar manually for peer-reviewed papers analyzing both ${fromRight} and ${toRight}. Use quotation marks around each term for precise results.`
+        reference: `Explore how ${fromRight} and ${toRight} are interconnected in human rights scholarship. Use the search link to find peer-reviewed papers analyzing both rights together.`
       }]
     };
   }
