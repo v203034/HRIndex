@@ -1,4 +1,3 @@
-
 export type Scope = 'International' | 'Regional' | 'National';
 export type SearchMode = 'Framework' | 'Status';
 
