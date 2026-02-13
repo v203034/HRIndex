@@ -4,12 +4,12 @@ import { DialogueResult, Scope, HumanRight } from "../types";
 // Initialize Gemini Client
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || "");
 
-// Model WITH Google Search - FIXED: Removed incorrect googleSearch tool
+// Model for general content generation
 const model = genAI.getGenerativeModel({
   model: "gemini-2.5-flash-lite"
 });
 
-// Model for structured JSON parsing (no search)
+// Model for structured JSON parsing
 const modelNoSearch = genAI.getGenerativeModel({
   model: "gemini-2.5-flash-lite",
   generationConfig: {
@@ -166,15 +166,21 @@ export async function getStatusAnalysis(rightName: string, scope: Scope, subScop
 }
 
 export async function getNexusAnalysis(fromRight: string, toRight: string, scope: Scope, subScope: string): Promise<DialogueResult> {
-  // Construct a Google Scholar-focused search query
-  const query = `Search Google Scholar for academic research papers, journal articles, and scholarly publications that explore the relationship between "${fromRight}" and "${toRight}" in human rights law. Find papers that discuss how these two rights intersect, conflict, or reinforce each other. Include:
-  - Paper titles
-  - Author names
-  - Journal/publication information
-  - Key findings about the nexus between these rights
-  - Direct quotes from the abstracts or conclusions
-  
-  Provide real, verifiable sources with proper citations.`;
+  const query = `You are a legal research assistant. Find SPECIFIC, REAL academic papers from Google Scholar that analyze both "${fromRight}" AND "${toRight}" together in human rights context.
+
+REQUIREMENTS:
+- Find 3-4 actual published papers (not hypothetical)
+- Each paper must have a specific title (not generic like "Human Rights Study")
+- Include author names and publication year
+- Include the journal or publication venue
+- Papers must directly discuss BOTH rights and their relationship
+
+Search Google Scholar using queries like:
+- "${fromRight}" AND "${toRight}" human rights
+- "intersection of ${fromRight} and ${toRight}"
+- "${fromRight}" "${toRight}" constitutional law
+
+Return the actual papers you find with their exact titles, authors, and where they were published.`;
 
   try {
     console.log('🔍 Nexus search starting for Google Scholar...');
@@ -182,20 +188,41 @@ export async function getNexusAnalysis(fromRight: string, toRight: string, scope
     const text = result.response.text();
     console.log('✅ Nexus search response received');
     
-    // Enhanced parsing prompt for academic sources
     const academicPrompt = `
-      Based on this research about the nexus between "${fromRight}" and "${toRight}":
+      You found these papers about "${fromRight}" and "${toRight}":
       
       CONTEXT:
       ${text}
 
-      Extract academic sources into a JSON structure with "sources".
-      Each source MUST be a real academic paper with:
-      - title: Full title of the research paper or article
-      - uri: Google Scholar link or DOI link (construct as "https://scholar.google.com/scholar?q=" + encoded title if needed)
-      - reference: A direct quote from the paper's abstract or findings (2-3 sentences) explaining the relationship between ${fromRight} and ${toRight}
+      Create a JSON structure with "sources" array. For each paper found:
+      
+      MANDATORY FORMAT for each source:
+      {
+        "title": "EXACT paper title as published (e.g., 'Privacy in the Age of Surveillance: Constitutional Implications')",
+        "uri": "https://scholar.google.com/scholar?q=EXACT+TITLE+WITH+PLUS+SIGNS",
+        "reference": "DIRECT QUOTE from the paper's abstract or introduction (1-2 sentences in quotation marks) that discusses both ${fromRight} and ${toRight}. Example: 'This study examines...' - Author(s), Year, Journal Name"
+      }
 
-      Return in JSON format. Focus on real, citable academic sources.
+      CRITICAL RULES:
+      1. Title must be SPECIFIC and REAL (not "Study on Rights" or "Analysis of Law")
+      2. URI must be Google Scholar search link with the exact paper title
+      3. Reference MUST contain a DIRECT QUOTE in quotation marks from the abstract/intro
+      4. Reference must include: Author names, Year, and Journal/Publication name
+      5. DO NOT write summaries - only direct quotes from the papers
+
+      CORRECT EXAMPLE:
+      {
+        "title": "Balancing National Security and Individual Privacy in the Digital Age",
+        "uri": "https://scholar.google.com/scholar?q=Balancing+National+Security+and+Individual+Privacy+in+the+Digital+Age",
+        "reference": "'The tension between national security imperatives and privacy rights has intensified with digital surveillance technologies, requiring courts to develop new constitutional frameworks.' - Smith & Johnson, 2022, Harvard Law Review"
+      }
+
+      WRONG (generic summary):
+      {
+        "reference": "This paper discusses how security and privacy interact in modern contexts."
+      }
+
+      Return 3-4 sources. Only include real papers with direct quotes.
     `;
 
     const academicResult = await modelNoSearch.generateContent(academicPrompt);
@@ -207,8 +234,8 @@ export async function getNexusAnalysis(fromRight: string, toRight: string, scope
     return { 
       sources: [{
         title: "Academic research temporarily unavailable",
-        uri: `https://scholar.google.com/scholar?q=${encodeURIComponent(fromRight + " " + toRight + " human rights")}`,
-        reference: `Search Google Scholar manually for research on the intersection of ${fromRight} and ${toRight}. Academic databases may provide peer-reviewed papers exploring this nexus.`
+        uri: `https://scholar.google.com/scholar?q=${encodeURIComponent(`"${fromRight}" AND "${toRight}" human rights`)}`,
+        reference: `Search Google Scholar manually for peer-reviewed papers analyzing both ${fromRight} and ${toRight}. Use quotation marks around each term for precise results.`
       }]
     };
   }
