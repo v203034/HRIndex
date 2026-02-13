@@ -276,6 +276,20 @@ const Constellation: React.FC<ConstellationProps> = ({
             </div>
           </div>
 
+          {/* Results counter when searching */}
+          {rightsSearchTerm && (
+            <div className="text-[7px] font-technical opacity-40 uppercase">
+              {(() => {
+                const totalResults = categories.reduce((sum, cat) => sum + getFilteredRights(cat.key).length, 0);
+                return totalResults > 0 
+                  ? `${totalResults} RECORD${totalResults === 1 ? '' : 'S'} FOUND` 
+                  : isSearchingSemantics 
+                    ? 'SEARCHING...' 
+                    : 'NO RECORDS FOUND';
+              })()}
+            </div>
+          )}
+
           {/* Rapid Concept Search for Rights */}
           <div className="relative">
             <i className={`fas ${isSearchingSemantics ? 'fa-spinner fa-spin' : 'fa-search'} absolute left-2.5 top-1/2 -translate-y-1/2 text-[7px] opacity-30`}></i>
@@ -284,11 +298,23 @@ const Constellation: React.FC<ConstellationProps> = ({
               placeholder="QUICK FIND (e.g. 'FOOD', 'FAIRNESS', 'POLICE')..."
               value={rightsSearchTerm}
               onChange={(e) => setRightsSearchTerm(e.target.value)}
-              className="w-full pl-7 pr-3 py-2 border border-[#5b5b5b]/10 bg-white text-[8px] font-typewriter uppercase outline-none focus:border-[#5b5b5b]/30 transition-colors"
+              className="w-full pl-7 pr-20 py-2 border border-[#5b5b5b]/10 bg-white text-[8px] font-typewriter uppercase outline-none focus:border-[#5b5b5b]/30 transition-colors"
             />
-            {isSearchingSemantics && (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[5px] font-technical uppercase opacity-40">Concept_Mapping_Engine...</div>
-            )}
+            
+            {/* Show either loading indicator OR clear button */}
+            {isSearchingSemantics ? (
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[5px] font-technical uppercase opacity-40">
+                Concept_Mapping_Engine...
+              </div>
+            ) : rightsSearchTerm ? (
+              <button
+                onClick={() => setRightsSearchTerm('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-[8px] opacity-30 hover:opacity-100 hover:text-[#9b2c2c] transition-all"
+                title="Clear search"
+              >
+                ✕
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -350,10 +376,39 @@ const Constellation: React.FC<ConstellationProps> = ({
               </div>
             );
           })}
-          {rightsSearchTerm && categories.every(cat => getFilteredRights(cat.key).length === 0) && !isSearchingSemantics && (
-            <div className="p-10 flex flex-col items-center justify-center opacity-20 gap-2">
-              <i className="fas fa-ghost text-xl"></i>
-              <span className="text-[8px] font-typewriter uppercase tracking-widest text-center">Archive Empty: Try another keyword.</span>
+          
+          {/* IMPROVED NO RESULTS MESSAGE */}
+          {rightsSearchTerm && categories.every(cat => getFilteredRights(cat.key).length === 0) && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 p-10 min-h-[300px]">
+              <div className="relative">
+                <i className={`fas ${isSearchingSemantics ? 'fa-spinner fa-spin text-[#9b2c2c]' : 'fa-search'} text-4xl opacity-20`}></i>
+              </div>
+              
+              {isSearchingSemantics ? (
+                <div className="text-center space-y-2">
+                  <div className="text-[10px] font-typewriter uppercase tracking-widest opacity-60">
+                    Searching Archives...
+                  </div>
+                  <div className="text-[7px] font-technical uppercase opacity-40">
+                    Concept_Mapping_Engine_Active
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center space-y-3">
+                  <div className="text-[11px] font-bold font-typewriter uppercase tracking-wider opacity-60">
+                    No Records Found
+                  </div>
+                  <div className="text-[8px] font-technical uppercase opacity-40 max-w-[200px]">
+                    Archive query "{rightsSearchTerm}" returned zero entries
+                  </div>
+                  <button
+                    onClick={() => setRightsSearchTerm('')}
+                    className="mt-4 px-4 py-2 border border-[#5b5b5b] text-[7px] font-technical uppercase hover:bg-[#5b5b5b] hover:text-white transition-all"
+                  >
+                    [CLEAR_SEARCH]
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
